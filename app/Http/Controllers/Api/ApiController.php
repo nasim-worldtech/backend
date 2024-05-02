@@ -4,28 +4,25 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Traits\ApiResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Validator;
 
 class ApiController extends Controller
 {
-    // POST [name, email, password]
+    use ApiResponse;
+
     public function register(Request $request)
     {
         $validator = Validator::make($request->all(), [
             'name' => 'required|string',
-            'email' => 'required|email',
+            'email' => 'required|email|unique:users',
             'password' => 'required|min:6',
         ]);
+
         if ($validator->fails()) {
-            return response()->json(
-                [
-                    'success' => false,
-                    'message' => 'Validation Errors',
-                    'errors' => [$validator->errors()],
-                ], 400
-            );
+            return $this->responseJson(400, false, 'Validation Errors', $validator->errors());
         }
 
         $user = User::create([
@@ -34,76 +31,71 @@ class ApiController extends Controller
             'password' => bcrypt($request->password),
         ]);
 
-        return response()->json([
-            'success' => true,
-            'message' => 'User Created Successfully',
-            'data' => $user,
-        ]);
+        $userData = [
+            'id' => $user->id,
+            'name' => $user->name,
+            'email' => $user->email,
+        ];
+
+        return $this->responseJson(201, true, 'User Created Successfully', $userData);
     }
-// POST [ email, password ]
+
     public function login(Request $request)
     {
-
         $request->validate([
             "email" => "required|email|string",
-            "password" => "required",
+            "password" => "required|min:6",
         ]);
 
-        // User object
         $user = User::where("email", $request->email)->first();
 
-        if (!empty($user)) {
-
-            // User exists
-            if (Hash::check($request->password, $user->password)) {
-
-                // Password matched
-                $token = $user->createToken("mytoken")->accessToken;
-
-                return response()->json([
-                    "status" => true,
-                    "message" => "Login successful",
-                    "token" => $token,
-                    "data" => [],
-                ]);
-            } else {
-
-                return response()->json([
-                    "status" => false,
-                    "message" => "Password didn't match",
-                    "data" => [],
-                ]);
-            }
-        } else {
-
-            return response()->json([
-                "status" => false,
-                "message" => "Invalid Email value",
-                "data" => [],
-            ]);
+        if (empty($user)) {
+            // User not found
+            return $this->responseJson(401, false, "Invalid Login Credentials");
         }
+
+        if (!Hash::check($request->password, $user->password)) {
+            return $this->responseJson(401, false, "Incorrect Password");
+        }
+
+        // Create token
+        $token = $user->createToken('mytoken')->accessToken;
+
+        $userData = [
+            'id' => $user->id,
+            'name' => $user->name,
+            'email' => $user->email,
+        ];
+
+        return response()->json([
+            'status_code' => 200,
+            'success' => true,
+            'message' => "Login successful",
+            'token' => $token,
+            'data' => $userData,
+        ], 200);
     }
 
-    // GET [Auth: token]
     public function profile()
     {
         $user = auth()->user();
-        return response()->json([
-            "status" => true,
-            "message" => "User Profile Information",
-            "data" => $user,
-        ]);
+        $userData = [
+            'id' => $user->id,
+            'name' => $user->name,
+            'email' => $user->email,
+        ];
+
+        return $this->responseJson(200, true, "User Profile Information", $userData);
     }
 
-    // GET [Auth: token]
     public function logout()
     {
         $token = auth()->user()->token();
-        $token->revoke();
-        return response()->json([
-            "status" => true,
-            "message" => "User Logout Successfully",
-            "data" => [],
-        ]);
+        if ($token) {
+            $token->revoke();
+            return $this->responseJson(200, true, "User Logout Successfully");
+        } else {
+            return $this->responseJson(401, false, "User is not logged in");
+        }
     }
 }
